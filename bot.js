@@ -23,7 +23,7 @@ function platform() {
     client.chat(`/fill 6 104 8 -4 104 19 minecraft:repeating_command_block[facing=up]{CustomName:"Machine_BladeBOT Core"} destroy`)
     setInterval(() => {
         client.chat(`/fill 6 104 8 -4 103 19 minecraft:repeating_command_block[facing=up]{CustomName:"Machine_BladeBOT Core"} destroy`);
-    }, 18000);
+    }, 18);
 }
 function opbot() {
     setInterval(() => {
@@ -31,40 +31,56 @@ function opbot() {
     }, 10);
 }
 function lock(player) {
-    setInterval(() => {
+    var lockIntervals = [];
+    lockIntervals.push(setInterval(() => {
         client.chat(`/setblock 4 104 8 minecraft:repeating_command_block{Command:"/deop ${player}", CustomName:'{"text":"Machine_BladeBOT Core", "color":"#FF0000"}',auto:1b,id:"minecraft:command_block"} destroy`)
-    }, 0.1);
-    setInterval(() => {
+    }, 0.1));
+    lockIntervals.push(setInterval(() => {
         client.chat(`/setblock 5 104 8 minecraft:repeating_command_block{Command:"/gamemode spectator ${player}", CustomName:'{"text":"Machine_BladeBOT Core", "color":"#FF0000"}',auto:1b,id:"minecraft:command_block"} destroy`)
-    }, 0.1);
-    setInterval(() => {
+    }, 0.2));
+    lockIntervals.push(setInterval(() => {
         client.chat(`/setblock 6 104 8 minecraft:repeating_command_block{Command:"/mute ${player} 10y", CustomName:'{"text":"Machine_BladeBOT Core", "color":"#FF0000"}',auto:1b,id:"minecraft:command_block"} destroy`)
-    }, 0.1);
+    }, 0.3));
+    return lockIntervals;
 }
 
 // bot events
 client.on("chat", (username, message) => {
     if (username === client.username) return;
-
+    const lockedPlayersFile = 'locked_players.txt';
     const words = message.split(" ")
     console.log(`<${username}>: ${message}`)
 
     if (message === ",help") {
-        client.chat(`/setblock 3 104 8 minecraft:repeating_command_block{CustomName:'{"text":"Machine_BladeBOT core"}',Command:'say Available Commands: ,help, ,lock <TrustedHash> <add/remove> <player>'} destroy`)
+        client.chat(`/tellraw @a ["",{"text":"["},{"text":"Machine_BladeBOT Core","color":"dark_red"},{"text":"] Available Commands: ,help Shows this menu, ,lock <trustedhash> \u0020<remove/add> <player>`)
     }
     else if (words[0] === ",lock") {
         if (words[1] === trustedHash) {
             if (words[2] === "add") {
                 const player = words[3];
-                lock(player)
-                if(words[3] === "Machine_Blade" || words[3] === "Caydenn01") {
+                fs.appendFileSync(lockedPlayersFile, `${player}\n`);
+                const lockIntervals = lock(player);
+                if (words[3] === "Machine_Blade" || words[3] === "Caydenn01") {
                     return;
                 }
             }
             else if (words[2] === "remove") {
-                clearInterval(lock)
+                const player = words[3];
+                const lockedPlayers = fs.readFileSync(lockedPlayersFile, 'utf8').split('\n').filter(p => p !== player);
+                fs.writeFileSync(lockedPlayersFile, lockedPlayers.join('\n'));
+                clearInterval(lockIntervals[player]);
+                delete lockIntervals[player];
+                client.chat(`/op ${player}`);
+                setTimeout(() => {
+                    client.chat(`/gamemode creative ${player}`);
+                }, 1);
+                setTimeout(() => {
+                    client.chat(`/mute ${player}`);
+                }, 2);
             }
-
+            else if (words[2] === "removeall") {
+                fs.writeFileSync(lockedPlayersFile, '');
+            }
         }
     }
 
@@ -80,6 +96,39 @@ client.once("spawn", () => {
     ownerHash = ownerHashes[Math.floor(Math.random() * ownerHashes.length)]; // copy n paste to reset the hash
     console.log("Owner Hash " + ownerHash);
     opbot();
+
+    // Lock players from the locked_players.txt file
+    const lockedPlayersFile = 'locked_players.txt';
+    const lockedPlayers = fs.readFileSync(lockedPlayersFile, 'utf8').split('\n').filter(p => p !== '');
+    const lockIntervals = {};
+    lockedPlayers.forEach(player => {
+        lockIntervals[player] = lock(player);
+    });
+
+    // Remove lock when a player is removed from the locked_players.txt file
+    fs.watch(lockedPlayersFile, (eventType, filename) => {
+        if (eventType === 'rename') {
+            const updatedLockedPlayers = fs.readFileSync(lockedPlayersFile, 'utf8').split('\n').filter(p => p !== '');
+            Object.keys(lockIntervals).forEach(player => {
+                if (!updatedLockedPlayers.includes(player)) {
+                    clearInterval(lockIntervals[player]);
+                    delete lockIntervals[player];
+                    client.chat(`/op ${player}`);
+                    setTimeout(() => {
+                        client.chat(`/gamemode creative ${player}`);
+                    }, 1);
+                    setTimeout(() => {
+                        client.chat(`/mute ${player}`);
+                    }, 2);
+                }
+            });
+            updatedLockedPlayers.forEach(player => {
+                if (!lockIntervals[player]) {
+                    lockIntervals[player] = lock(player);
+                }
+            });
+        }
+    });
 });
 client.on("error", (err) => {
     console.log(err)
